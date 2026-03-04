@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BCF Legacy: Tilt Reader</title>
+    <style>
+        body { margin: 0; padding: 0; background: #000; overflow-x: hidden; color: white; font-family: sans-serif; }
+        
+        /* The Full-Width Landscape Strip */
+        #strip-container { display: flex; flex-direction: column; width: 100vw; }
+        .page { width: 100%; display: block; height: auto; border-bottom: 2px solid #222; }
+
+        /* Overlay Controls */
+        #controls { position: fixed; top: 0; left: 0; width: 100%; z-index: 100; background: rgba(0,0,0,0.7); padding: 15px; text-align: center; }
+        button { background: #f06292; border: none; color: white; padding: 10px 20px; border-radius: 5px; font-weight: bold; }
+        #status { font-size: 12px; margin-top: 5px; color: #aaa; }
+    </style>
+</head>
+<body>
+
+<div id="controls">
+    <button id="accelBtn">Enable Tilt Reading</button>
+    <div id="status">Tap bottom of screen to "Jump" to next page.</div>
+</div>
+
+<div id="strip-container">
+    <img src="https://via.placeholder.com/1200x1800?text=Comic+Page+1" class="page">
+    <img src="https://via.placeholder.com/1200x1800?text=Comic+Page+2" class="page">
+    <img src="https://via.placeholder.com/1200x1800?text=Comic+Page+3" class="page">
+</div>
+
+<script>
+    let speed = 0;
+    const sensitivity = 0.6; // Higher = faster scroll
+    const neutralZone = 45;   // The degree angle you hold your phone at
+    const deadZone = 5;       // Degrees of "wiggle room"
+    let isActive = false;
+
+    const accelBtn = document.getElementById('accelBtn');
+    const status = document.getElementById('status');
+
+    // Request Permissions (Required for iOS)
+    accelBtn.addEventListener('click', async () => {
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            const permission = await DeviceOrientationEvent.requestPermission();
+            if (permission === 'granted') startTilt();
+        } else {
+            startTilt(); // Android / Non-iOS
+        }
+    });
+
+    function startTilt() {
+        isActive = true;
+        accelBtn.style.display = 'none';
+        status.innerText = "Tilt forward to scroll down, back to scroll up.";
+        
+        window.addEventListener('deviceorientation', (event) => {
+            let tilt = event.beta; // Front-to-back tilt
+            let offset = tilt - neutralZone;
+
+            if (Math.abs(offset) > deadZone) {
+                speed = offset * sensitivity;
+            } else {
+                speed = 0;
+            }
+        });
+        
+        requestAnimationFrame(updateScroll);
+    }
+
+    function updateScroll() {
+        if (isActive && speed !== 0) {
+            window.scrollBy(0, speed);
+        }
+        requestAnimationFrame(updateScroll);
+    }
+
+    // Smart Jump: Tap bottom 30% of screen to snap to next page
+    window.addEventListener('click', (e) => {
+        if (e.clientY > window.innerHeight * 0.7) {
+            const pages = document.querySelectorAll('.page');
+            for (let page of pages) {
+                const rect = page.getBoundingClientRect();
+                if (rect.top > 20) { // Find the first page mostly off-screen
+                    page.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    break;
+                }
+            }
+        }
+    });
+</script>
+</body>
+</html>
