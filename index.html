@@ -2,91 +2,97 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BCF Legacy: CBZ Tilt Reader</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>BCF Legacy: Zen Reader</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow-x: hidden; color: white; font-family: sans-serif; }
+        
+        /* HUD Style Controls - Fades away */
         #controls { 
             position: fixed; top: 0; left: 0; width: 100%; z-index: 100; 
-            background: rgba(0,0,0,0.9); padding: 15px; box-sizing: border-box;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%); 
+            padding: 20px; box-sizing: border-box;
             display: flex; flex-direction: column; align-items: center; gap: 10px;
-            border-bottom: 1px solid #444;
+            transition: opacity 0.5s ease;
+            opacity: 1;
         }
+        #controls.hidden { opacity: 0; pointer-events: none; }
+
         .btn-group { display: flex; gap: 10px; }
         button { background: #f06292; border: none; color: white; padding: 12px 20px; border-radius: 5px; font-weight: bold; }
-        #status { font-size: 11px; color: #ffab91; text-align: center; }
-        #strip-container { display: flex; flex-direction: column; width: 100vw; margin-top: 110px; }
-        .page { width: 100%; display: block; height: auto; margin-bottom: 2px; }
+        #status { font-size: 11px; color: #ffab91; text-align: center; text-shadow: 1px 1px 2px black; }
+
+        /* The Scrolling Strip - No Top Margin anymore */
+        #strip-container { display: flex; flex-direction: column; width: 100vw; margin: 0; padding: 0; }
+        .page { width: 100%; display: block; height: auto; margin: 0; }
+
         #loading-overlay { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 10px; z-index: 200; }
     </style>
 </head>
 <body>
 
-<div id="loading-overlay">Unpacking Comic...</div>
+<div id="loading-overlay">Unpacking...</div>
 
-<div id="controls">
+<div id="controls" id="hud">
     <div class="btn-group">
         <button id="accelBtn">1. Enable Tilt</button>
-        <button style="background:#444" onclick="document.getElementById('fileInput').click()">2. Open .CBZ / .ZIP</button>
+        <button style="background:#444" onclick="document.getElementById('fileInput').click()">2. Open Comic</button>
     </div>
     <input type="file" id="fileInput" accept=".cbz,.zip,image/*" multiple style="display:none">
-    <div id="status">Select a .cbz or a folder of images.</div>
+    <div id="status">Tap top of screen to show/hide menu.</div>
 </div>
 
 <div id="strip-container"></div>
 
 <script>
     let speed = 0;
-    const sensitivity = 0.5; // Slightly lower for better reading
-    const neutralZone = 45;   
+    let sensitivity = 0.5; 
+    let neutralZone = 45;   
     let isActive = false;
+    let hudTimer;
 
     const fileInput = document.getElementById('fileInput');
     const container = document.getElementById('strip-container');
     const status = document.getElementById('status');
     const loader = document.getElementById('loading-overlay');
+    const controls = document.getElementById('controls');
+
+    // --- HUD AUTO-HIDE LOGIC ---
+    function showHUD() {
+        controls.classList.remove('hidden');
+        clearTimeout(hudTimer);
+        hudTimer = setTimeout(() => { if(isActive) controls.classList.add('hidden'); }, 3000);
+    }
+
+    // Show HUD when tapping near the top
+    window.addEventListener('click', (e) => {
+        if (e.clientY < 100) {
+            showHUD();
+        }
+    });
 
     fileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-
         container.innerHTML = '';
         loader.style.display = 'block';
 
-        // Check if it's a ZIP/CBZ
         if (file.name.endsWith('.zip') || file.name.endsWith('.cbz')) {
-            try {
-                const zip = await JSZip.loadAsync(file);
-                const imageFiles = [];
-
-                // Find all images inside the zip
-                zip.forEach((relativePath, zipEntry) => {
-                    if (/\.(jpe?g|png|webp|avif)$/i.test(relativePath)) {
-                        imageFiles.push(zipEntry);
-                    }
-                });
-
-                // Sort numerically by filename
-                imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
-
-                for (const imgEntry of imageFiles) {
-                    const blob = await imgEntry.async("blob");
-                    const url = URL.createObjectURL(blob);
-                    renderPage(url);
-                }
-                status.innerText = `Loaded ${imageFiles.length} pages from archive.`;
-            } catch (err) {
-                status.innerText = "Error unzipping file.";
-                console.error(err);
+            const zip = await JSZip.loadAsync(file);
+            const imageFiles = [];
+            zip.forEach((path, entry) => { if (/\.(jpe?g|png|webp|avif)$/i.test(path)) imageFiles.push(entry); });
+            imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+            for (const imgEntry of imageFiles) {
+                const blob = await imgEntry.async("blob");
+                renderPage(URL.createObjectURL(blob));
             }
         } else {
-            // Handle regular image selection (multi-select)
-            const files = Array.from(e.target.files).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
-            files.forEach(f => renderPage(URL.createObjectURL(f)));
-            status.innerText = `Loaded ${files.length} images.`;
+            Array.from(e.target.files).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}))
+                 .forEach(f => renderPage(URL.createObjectURL(f)));
         }
         loader.style.display = 'none';
+        showHUD();
     });
 
     function renderPage(src) {
@@ -96,7 +102,6 @@
         container.appendChild(img);
     }
 
-    // --- TILT LOGIC (Same as before) ---
     document.getElementById('accelBtn').addEventListener('click', async () => {
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
             const res = await DeviceOrientationEvent.requestPermission();
@@ -107,6 +112,7 @@
     function startTilt() {
         isActive = true;
         document.getElementById('accelBtn').innerText = "Tilt: ON";
+        showHUD(); // Start the timer to hide
         window.addEventListener('deviceorientation', (e) => {
             let offset = e.beta - neutralZone;
             speed = Math.abs(offset) > 5 ? offset * sensitivity : 0;
@@ -119,7 +125,7 @@
         requestAnimationFrame(updateScroll);
     }
 
-    // --- SMART JUMP ---
+    // Smart Jump (Tap bottom 30%)
     window.addEventListener('click', (e) => {
         if (e.clientY > window.innerHeight * 0.7 && e.target.tagName !== 'BUTTON') {
             const pages = document.querySelectorAll('.page');
