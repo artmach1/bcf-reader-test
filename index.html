@@ -3,69 +3,110 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BCF Legacy: Tilt Reader</title>
+    <title>BCF Legacy: Pocket Reader</title>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow-x: hidden; color: white; font-family: sans-serif; }
         
-        /* The Full-Width Landscape Strip */
-        #strip-container { display: flex; flex-direction: column; width: 100vw; }
-        .page { width: 100%; display: block; height: auto; border-bottom: 2px solid #222; }
+        /* Navigation & Controls */
+        #controls { 
+            position: fixed; top: 0; left: 0; width: 100%; z-index: 100; 
+            background: rgba(0,0,0,0.85); padding: 15px; box-sizing: border-box;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+            border-bottom: 1px solid #444;
+        }
+        .btn-group { display: flex; gap: 10px; }
+        button { 
+            background: #f06292; border: none; color: white; padding: 12px 20px; 
+            border-radius: 5px; font-weight: bold; font-size: 14px; cursor: pointer;
+        }
+        button.secondary { background: #444; }
+        #status { font-size: 11px; color: #ffab91; text-transform: uppercase; letter-spacing: 1px; }
 
-        /* Overlay Controls */
-        #controls { position: fixed; top: 0; left: 0; width: 100%; z-index: 100; background: rgba(0,0,0,0.7); padding: 15px; text-align: center; }
-        button { background: #f06292; border: none; color: white; padding: 10px 20px; border-radius: 5px; font-weight: bold; }
-        #status { font-size: 12px; margin-top: 5px; color: #aaa; }
+        /* The Scrolling Strip */
+        #strip-container { display: flex; flex-direction: column; width: 100vw; margin-top: 100px; }
+        .page { width: 100%; display: block; height: auto; margin-bottom: 2px; background: #111; }
+        
+        /* Empty State */
+        #placeholder { padding: 100px 20px; text-align: center; color: #666; font-style: italic; }
     </style>
 </head>
 <body>
 
 <div id="controls">
-    <button id="accelBtn">Enable Tilt Reading</button>
-    <div id="status">Tap bottom of screen to "Jump" to next page.</div>
+    <div class="btn-group">
+        <button id="accelBtn">1. Enable Tilt</button>
+        <button class="secondary" onclick="document.getElementById('fileInput').click()">2. Open Comic</button>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" multiple style="display:none">
+    <div id="status">Ready to load images...</div>
 </div>
 
 <div id="strip-container">
-    <img src="https://via.placeholder.com/1200x1800?text=Comic+Page+1" class="page">
-    <img src="https://via.placeholder.com/1200x1800?text=Comic+Page+2" class="page">
-    <img src="https://via.placeholder.com/1200x1800?text=Comic+Page+3" class="page">
+    <div id="placeholder">No pages loaded. Tap 'Open Comic' to select images from your phone.</div>
 </div>
 
 <script>
     let speed = 0;
-    const sensitivity = 0.6; // Higher = faster scroll
-    const neutralZone = 45;   // The degree angle you hold your phone at
-    const deadZone = 5;       // Degrees of "wiggle room"
+    const sensitivity = 0.6; 
+    const neutralZone = 45;   
+    const deadZone = 5;       
     let isActive = false;
 
     const accelBtn = document.getElementById('accelBtn');
+    const fileInput = document.getElementById('fileInput');
+    const container = document.getElementById('strip-container');
     const status = document.getElementById('status');
 
-    // Request Permissions (Required for iOS)
+    // --- FILE LOADING LOGIC ---
+    fileInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
+        container.innerHTML = ''; // Clear placeholder
+        status.innerText = "Loading " + files.length + " pages...";
+
+        // Sort files by name (important for mobile file pickers)
+        files.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+
+        files.forEach((file, index) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = document.createElement('img');
+                img.src = event.target.result;
+                img.className = 'page';
+                img.id = 'page-' + index;
+                container.appendChild(img);
+            };
+            reader.readAsDataURL(file);
+        });
+
+        status.innerText = files.length + " Pages Active. Tilt to Read.";
+    });
+
+    // --- TILT LOGIC ---
     accelBtn.addEventListener('click', async () => {
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
             const permission = await DeviceOrientationEvent.requestPermission();
             if (permission === 'granted') startTilt();
         } else {
-            startTilt(); // Android / Non-iOS
+            startTilt();
         }
     });
 
     function startTilt() {
         isActive = true;
-        accelBtn.style.display = 'none';
-        status.innerText = "Tilt forward to scroll down, back to scroll up.";
+        accelBtn.innerText = "Tilt Active";
+        accelBtn.style.background = "#4CAF50";
         
         window.addEventListener('deviceorientation', (event) => {
-            let tilt = event.beta; // Front-to-back tilt
+            let tilt = event.beta; 
             let offset = tilt - neutralZone;
-
             if (Math.abs(offset) > deadZone) {
                 speed = offset * sensitivity;
             } else {
                 speed = 0;
             }
         });
-        
         requestAnimationFrame(updateScroll);
     }
 
@@ -76,13 +117,13 @@
         requestAnimationFrame(updateScroll);
     }
 
-    // Smart Jump: Tap bottom 30% of screen to snap to next page
+    // --- SMART JUMP (Tap bottom 30%) ---
     window.addEventListener('click', (e) => {
-        if (e.clientY > window.innerHeight * 0.7) {
+        if (e.clientY > window.innerHeight * 0.7 && e.target.tagName !== 'BUTTON') {
             const pages = document.querySelectorAll('.page');
             for (let page of pages) {
                 const rect = page.getBoundingClientRect();
-                if (rect.top > 20) { // Find the first page mostly off-screen
+                if (rect.top > 20) { 
                     page.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     break;
                 }
