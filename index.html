@@ -3,121 +3,123 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>BCF Legacy: Pocket Reader</title>
+    <title>BCF Legacy: CBZ Tilt Reader</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body { margin: 0; padding: 0; background: #000; overflow-x: hidden; color: white; font-family: sans-serif; }
-        
-        /* Navigation & Controls */
         #controls { 
             position: fixed; top: 0; left: 0; width: 100%; z-index: 100; 
-            background: rgba(0,0,0,0.85); padding: 15px; box-sizing: border-box;
+            background: rgba(0,0,0,0.9); padding: 15px; box-sizing: border-box;
             display: flex; flex-direction: column; align-items: center; gap: 10px;
             border-bottom: 1px solid #444;
         }
         .btn-group { display: flex; gap: 10px; }
-        button { 
-            background: #f06292; border: none; color: white; padding: 12px 20px; 
-            border-radius: 5px; font-weight: bold; font-size: 14px; cursor: pointer;
-        }
-        button.secondary { background: #444; }
-        #status { font-size: 11px; color: #ffab91; text-transform: uppercase; letter-spacing: 1px; }
-
-        /* The Scrolling Strip */
-        #strip-container { display: flex; flex-direction: column; width: 100vw; margin-top: 100px; }
-        .page { width: 100%; display: block; height: auto; margin-bottom: 2px; background: #111; }
-        
-        /* Empty State */
-        #placeholder { padding: 100px 20px; text-align: center; color: #666; font-style: italic; }
+        button { background: #f06292; border: none; color: white; padding: 12px 20px; border-radius: 5px; font-weight: bold; }
+        #status { font-size: 11px; color: #ffab91; text-align: center; }
+        #strip-container { display: flex; flex-direction: column; width: 100vw; margin-top: 110px; }
+        .page { width: 100%; display: block; height: auto; margin-bottom: 2px; }
+        #loading-overlay { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 10px; z-index: 200; }
     </style>
 </head>
 <body>
 
+<div id="loading-overlay">Unpacking Comic...</div>
+
 <div id="controls">
     <div class="btn-group">
         <button id="accelBtn">1. Enable Tilt</button>
-        <button class="secondary" onclick="document.getElementById('fileInput').click()">2. Open Comic</button>
+        <button style="background:#444" onclick="document.getElementById('fileInput').click()">2. Open .CBZ / .ZIP</button>
     </div>
-    <input type="file" id="fileInput" accept="image/*" multiple style="display:none">
-    <div id="status">Ready to load images...</div>
+    <input type="file" id="fileInput" accept=".cbz,.zip,image/*" multiple style="display:none">
+    <div id="status">Select a .cbz or a folder of images.</div>
 </div>
 
-<div id="strip-container">
-    <div id="placeholder">No pages loaded. Tap 'Open Comic' to select images from your phone.</div>
-</div>
+<div id="strip-container"></div>
 
 <script>
     let speed = 0;
-    const sensitivity = 0.6; 
+    const sensitivity = 0.5; // Slightly lower for better reading
     const neutralZone = 45;   
-    const deadZone = 5;       
     let isActive = false;
 
-    const accelBtn = document.getElementById('accelBtn');
     const fileInput = document.getElementById('fileInput');
     const container = document.getElementById('strip-container');
     const status = document.getElementById('status');
+    const loader = document.getElementById('loading-overlay');
 
-    // --- FILE LOADING LOGIC ---
-    fileInput.addEventListener('change', (e) => {
-        const files = Array.from(e.target.files);
-        if (files.length === 0) return;
+    fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
 
-        container.innerHTML = ''; // Clear placeholder
-        status.innerText = "Loading " + files.length + " pages...";
+        container.innerHTML = '';
+        loader.style.display = 'block';
 
-        // Sort files by name (important for mobile file pickers)
-        files.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true, sensitivity: 'base'}));
+        // Check if it's a ZIP/CBZ
+        if (file.name.endsWith('.zip') || file.name.endsWith('.cbz')) {
+            try {
+                const zip = await JSZip.loadAsync(file);
+                const imageFiles = [];
 
-        files.forEach((file, index) => {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const img = document.createElement('img');
-                img.src = event.target.result;
-                img.className = 'page';
-                img.id = 'page-' + index;
-                container.appendChild(img);
-            };
-            reader.readAsDataURL(file);
-        });
+                // Find all images inside the zip
+                zip.forEach((relativePath, zipEntry) => {
+                    if (/\.(jpe?g|png|webp|avif)$/i.test(relativePath)) {
+                        imageFiles.push(zipEntry);
+                    }
+                });
 
-        status.innerText = files.length + " Pages Active. Tilt to Read.";
+                // Sort numerically by filename
+                imageFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+
+                for (const imgEntry of imageFiles) {
+                    const blob = await imgEntry.async("blob");
+                    const url = URL.createObjectURL(blob);
+                    renderPage(url);
+                }
+                status.innerText = `Loaded ${imageFiles.length} pages from archive.`;
+            } catch (err) {
+                status.innerText = "Error unzipping file.";
+                console.error(err);
+            }
+        } else {
+            // Handle regular image selection (multi-select)
+            const files = Array.from(e.target.files).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+            files.forEach(f => renderPage(URL.createObjectURL(f)));
+            status.innerText = `Loaded ${files.length} images.`;
+        }
+        loader.style.display = 'none';
     });
 
-    // --- TILT LOGIC ---
-    accelBtn.addEventListener('click', async () => {
+    function renderPage(src) {
+        const img = document.createElement('img');
+        img.src = src;
+        img.className = 'page';
+        container.appendChild(img);
+    }
+
+    // --- TILT LOGIC (Same as before) ---
+    document.getElementById('accelBtn').addEventListener('click', async () => {
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-            const permission = await DeviceOrientationEvent.requestPermission();
-            if (permission === 'granted') startTilt();
-        } else {
-            startTilt();
-        }
+            const res = await DeviceOrientationEvent.requestPermission();
+            if (res === 'granted') startTilt();
+        } else { startTilt(); }
     });
 
     function startTilt() {
         isActive = true;
-        accelBtn.innerText = "Tilt Active";
-        accelBtn.style.background = "#4CAF50";
-        
-        window.addEventListener('deviceorientation', (event) => {
-            let tilt = event.beta; 
-            let offset = tilt - neutralZone;
-            if (Math.abs(offset) > deadZone) {
-                speed = offset * sensitivity;
-            } else {
-                speed = 0;
-            }
+        document.getElementById('accelBtn').innerText = "Tilt: ON";
+        window.addEventListener('deviceorientation', (e) => {
+            let offset = e.beta - neutralZone;
+            speed = Math.abs(offset) > 5 ? offset * sensitivity : 0;
         });
         requestAnimationFrame(updateScroll);
     }
 
     function updateScroll() {
-        if (isActive && speed !== 0) {
-            window.scrollBy(0, speed);
-        }
+        if (isActive && speed !== 0) window.scrollBy(0, speed);
         requestAnimationFrame(updateScroll);
     }
 
-    // --- SMART JUMP (Tap bottom 30%) ---
+    // --- SMART JUMP ---
     window.addEventListener('click', (e) => {
         if (e.clientY > window.innerHeight * 0.7 && e.target.tagName !== 'BUTTON') {
             const pages = document.querySelectorAll('.page');
