@@ -3,32 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>BCF: Zen Reader</title>
+    <title>BCF: Immersive Reader</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
-        body { margin: 0; padding: 0; background: #000; overflow: hidden; color: white; font-family: sans-serif; }
+        /* Allow scrolling again, but hide scrollbar for immersion */
+        body { 
+            margin: 0; padding: 0; background: #000; 
+            color: white; font-family: sans-serif;
+            overflow-x: hidden;
+            overflow-y: scroll; 
+            scrollbar-width: none; /* Firefox */
+        }
+        body::-webkit-scrollbar { display: none; /* Chrome/Safari */ }
         
         /* The Sliding HUD */
         #controls { 
             position: fixed; top: 0; left: 0; width: 100%; z-index: 100; 
-            background: rgba(0,0,0,0.95); padding: 20px; box-sizing: border-box;
+            background: rgba(0,0,0,0.9); padding: 20px; box-sizing: border-box;
             display: flex; flex-direction: column; align-items: center; gap: 15px;
             transform: translateY(0);
-            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: transform 0.4s ease-in-out;
             border-bottom: 1px solid #333;
         }
         #controls.hidden { transform: translateY(-100%); }
 
         .btn-group { display: flex; gap: 10px; }
-        button { background: #f06292; border: none; color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        button { background: #f06292; border: none; color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; }
         #status { font-size: 11px; color: #ffab91; text-align: center; }
 
         /* The Comic Strip */
         #strip-container { display: flex; flex-direction: column; width: 100vw; margin: 0; padding: 0; }
-        .page { width: 100%; display: block; height: auto; margin: 0; }
+        .page { width: 100%; display: block; height: auto; margin: 0; border: none; }
 
-        /* Tap zones for interaction */
-        #top-trigger { position: fixed; top: 0; left: 0; width: 100%; height: 60px; z-index: 90; }
+        /* Detection Zone for Menu */
+        #top-trigger { position: fixed; top: 0; left: 0; width: 100%; height: 80px; z-index: 90; }
     </style>
 </head>
 <body>
@@ -37,20 +45,20 @@
 
 <div id="controls">
     <div class="btn-group">
-        <button id="accelBtn">1. Enable Tilt</button>
-        <button style="background:#444" onclick="document.getElementById('fileInput').click()">2. Open Comic</button>
+        <button id="accelBtn">Enable Tilt</button>
+        <button style="background:#444" onclick="document.getElementById('fileInput').click()">Open Comic</button>
     </div>
     <input type="file" id="fileInput" accept=".cbz,.zip,image/*" multiple style="display:none">
-    <div id="status">Tap top edge to return to menu.</div>
+    <div id="status">Tap top edge to see menu.</div>
 </div>
 
-<div id="strip-container"></div>
+<div id="strip-container">
+    </div>
 
 <script>
     let speed = 0, sensitivity = 0.5, neutralZone = 45, isActive = false, hudTimer;
     const controls = document.getElementById('controls');
     const container = document.getElementById('strip-container');
-    const status = document.getElementById('status');
 
     function hideHUD() { controls.classList.add('hidden'); }
     function showHUD() { 
@@ -59,7 +67,7 @@
         hudTimer = setTimeout(hideHUD, 4000); 
     }
 
-    // Show menu when tapping the top trigger zone
+    // Menu Trigger
     document.getElementById('top-trigger').addEventListener('click', showHUD);
 
     document.getElementById('fileInput').addEventListener('change', async (e) => {
@@ -97,24 +105,29 @@
 
     function startTilt() {
         isActive = true;
-        document.getElementById('accelBtn').innerText = "Tilt: ON";
+        document.getElementById('accelBtn').innerText = "Tilt Active";
         hideHUD();
         window.addEventListener('deviceorientation', (e) => {
+            // Beta is front-to-back tilt
             speed = Math.abs(e.beta - neutralZone) > 5 ? (e.beta - neutralZone) * sensitivity : 0;
         });
-        requestAnimationFrame(function scroll() {
-            if (isActive && speed !== 0) window.scrollBy(0, speed);
-            requestAnimationFrame(scroll);
-        });
+        
+        function scrollLoop() {
+            if (isActive && speed !== 0) {
+                window.scrollBy(0, speed);
+            }
+            requestAnimationFrame(scrollLoop);
+        }
+        scrollLoop();
     }
 
-    // Smart Jump (Bottom 30% Tap)
+    // Smart Jump (Tap bottom 25% of screen)
     window.addEventListener('click', (e) => {
-        if (e.clientY > window.innerHeight * 0.7 && !isActive) showHUD(); 
-        if (e.clientY > window.innerHeight * 0.7) {
+        if (e.clientY > window.innerHeight * 0.75) {
             const pages = document.querySelectorAll('.page');
             for (let p of pages) {
-                if (p.getBoundingClientRect().top > 20) {
+                const rect = p.getBoundingClientRect();
+                if (rect.top > 50) { // Find the next page down
                     p.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     break;
                 }
